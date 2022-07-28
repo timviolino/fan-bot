@@ -15,29 +15,48 @@ class fanBot:
         self.ip = self.imageProcessor()
         self.dp = self.dataProcessor()
         self.s = self.speech()
+        self.fanCurve = self.graph()
 
     def acquireFanCurve(self):
-        file = self.s.ask("Fan Curve")
+        fileType = ''
+        while(fileType not in self.ip.imgTypes):
+            file = self.s.ask("Fan Curve")
+            fileType = os.path.splitext(file)[1]
         self.ip.setImage(file)
 
     def getAxes(self):
-        flowRates = [0]
-        pressures = [0]
+        axes = self.fanCurve.getAxes()
+        self.fanCurve.setSize(self.ip.w, self.ip.h)
         try:
             textImgs = self.ip.cropTextFromImage() # returns cropped image with text and x-y coordinates
-            for (img, x, y) in textImgs:
-                text = self.tr.readImage(img)
-                print(text, x, y)
-                if(not self.dp.isNumber(text)): continue
-                val = float(text)
-                if(val == 0.0): continue
-                if(y > 0.8*self.ip.h):
-                    flowRates.append(val)
-                else:
-                    pressures.append(val)
+            for (img, x, y, w, h) in textImgs:
+                text = self.tr.readNumber(img)
+                if(len(text) == 0): text = self.tr.readWord(img)
+                print(text)
+                isNumber = self.dp.isNumber(text)
+                axis = not (y > 0.8*self.ip.h)
+                if(isNumber): # numbers are axis values
+                    val = float(text)
+                    if(val == 0.0): continue
+                    axes[axis].append(val)
+                else: # words are units
+                    self.fanCurve.units[axis] = text
         except Exception as e:
             print("The error raised is: ", e)
-        return sorted(flowRates), sorted(pressures)
+        for axis in axes: axis.sort()
+        return axes
+    
+    class graph:
+        def __init__(self):
+            self.axes = ([0],[0])
+            self.units = ['', '']
+            self.pixels = [0, 0]
+        
+        def getAxes(self):
+            return (self.axes[0], self.axes[1])
+
+        def setSize(self, w, h):
+            self.pixels = [w, h]
 
     class imageProcessor:
         def __init__(self):
@@ -45,6 +64,7 @@ class fanBot:
             self.fileLoc = ""
             self.w = None
             self.h = None
+            self.imgTypes = ['.png']
         
         def setImage(self, file):
             self.fileLoc = file
@@ -70,21 +90,25 @@ class fanBot:
             contours = self.getContours(thresh)
             imgs = []
             im2 = self.img.copy()
+            count = 0
             for contour in contours:
                 x, y, w, h = cv.boundingRect(contour)
                 rect = cv.rectangle(im2, (x, y), (x + w, y + h), (0, 255, 0), 2)
                 cropped = im2[y:y + h, x:x + w] # crop the bounding box area
                 if(w < 0.5*self.w and h < 0.5*self.h): # check that crop is reasonably small
-                    imgs.append((cropped, x, y))
+                    if(w < h): cropped = self.rotate(cropped)
+                    imgs.append((cropped, x, y, w, h))
+                    count += 1
+                    self.showImage(cropped)
+            print(count)
             return imgs
 
-        def cropTextInRangeThresholding(self):
-            hsv = cv.cvtColor(self.img, cv.COLOR_BGR2HSV)
-            mask = cv.inRange(hsv, np.array([0, 0, 244]), np.array([179, 35, 255]))
-            kernel = cv.getStructuringElement(cv.MORPH_RECT, (5, 3))
-            dilated = cv.dilate(mask, kernel, iterations=1)
-            thresh = cv.bitwise_and(dilated, mask)
-            self.showImage(thresh)
+        def rotate(self, img):
+            (h, w) = img.shape[:2]
+            center = (w/2, h/2)
+            M = cv.getRotationMatrix2D(center, angle = 270, scale = 1.0)
+            rotated = cv.warpAffine(img, M, (w, h))
+            return rotated
 
         def setImageDPI(self, dpi):
             im = Image.open(self.fileLoc)
@@ -94,12 +118,19 @@ class fanBot:
         def __init__(self, path):
             self.path = path
             pytesseract.tesseract_cmd = self.path
-        
-        def readImage(self, img):
-            whitelist = "-c tessedit_char_whitelist=0123456789. --psm 10 --oem 3"
-            text = pytesseract.image_to_string(img, config=whitelist)
+
+        def readImage(self, img, wl, psm):
+            config = "-c tessedit_char_whitelist=" + wl + " --psm " + psm + " --oem 3"
+            text = pytesseract.image_to_string(img, config=config)
             text = text.strip('\n')
             return text
+
+        def readNumber(self, img, wl = "0123456789.", psm = "8"):
+            return self.readImage(img, wl, psm)
+            
+        def readWord(self, img, wl = "qwertyuiopasdfghjklzxcvbnm", psm = "8", align = "horizontal"):
+            if (align == "vertical"): psm = "5"
+            return self.readImage(img, wl, psm)
 
     class physicsEngine:
         def __init__(self, Q, p_s, D, P_in, L_p=None, w=None):
