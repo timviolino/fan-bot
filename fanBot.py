@@ -218,15 +218,14 @@ class fanBot:
         def __init__(self):
             pass
 
-        def grabPage(self, page):
+        def grabPage(self, pages):
             options = Options()
             options.binary_location = r'C:\Program Files\Mozilla Firefox\firefox.exe'
-            driver = webdriver.Firefox(service=FirefoxService(GeckoDriverManager().install(), options=options))
-            driver.get(page)
-            screenshot = driver.save_screenshot('test.png')
+            driver = webdriver.Firefox(service=FirefoxService(GeckoDriverManager().install()), options=options)
+            for page in pages:
+                driver.get(page)
+                screenshot = driver.save_screenshot('test.png')
             driver.quit()
-
-        
 
 def fcAxesTest(fb):
     fb.acquirefc()
@@ -236,7 +235,9 @@ def fcAxesTest(fb):
 
 def main():
     fb = fanBot()
-    fb.v.grabPage('https://www.spotify.com')
+    pages = ['https://datasheet.octopart.com/3312NH-EBM-Papst-datasheet-38188892.pdf',
+            'https://datasheet.octopart.com/OD4010-12HB-Orion-datasheet-110760261.pdf']
+    fb.v.grabPage(5*pages)
 
 if __name__=="__main__":
     main()
