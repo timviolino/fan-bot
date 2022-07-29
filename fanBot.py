@@ -1,10 +1,14 @@
-import os
-import cv2 as cv
-import math
-from pytesseract import pytesseract
-import numpy as np
-from PIL import Image
-from fuzzywuzzy import fuzz
+import os                               # used for interacting with the operating system
+import cv2 as cv                        # used for image processing
+import math                             # used for calculations                
+from pytesseract import pytesseract     # used for reading text from images via OCR
+from PIL import Image                   # used for altering image dpi
+from fuzzywuzzy import fuzz             # used for making fuzzy comparisons of strings
+from selenium import webdriver
+from selenium.webdriver.firefox.service import Service as FirefoxService
+from webdriver_manager.firefox import GeckoDriverManager
+from selenium.webdriver.firefox.options import Options
+
 
 GRAPH_FILE = "graph300.png"
 PATH_TO_TESSERACT = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
@@ -17,6 +21,7 @@ class fanBot:
         self.dp = self.dataProcessor()
         self.s = self.speech()
         self.fc = self.graph()
+        self.v = self.vision()
 
     def acquirefc(self):
         fileType = ''
@@ -209,6 +214,20 @@ class fanBot:
                 answer = input("What is the name of the fan curve?")
             return answer
 
+    class vision:
+        def __init__(self):
+            pass
+
+        def grabPage(self, page):
+            options = Options()
+            options.binary_location = r'C:\Program Files\Mozilla Firefox\firefox.exe'
+            driver = webdriver.Firefox(service=FirefoxService(GeckoDriverManager().install(), options=options))
+            driver.get(page)
+            screenshot = driver.save_screenshot('test.png')
+            driver.quit()
+
+        
+
 def fcAxesTest(fb):
     fb.acquirefc()
     fb.setAxes()
@@ -217,7 +236,7 @@ def fcAxesTest(fb):
 
 def main():
     fb = fanBot()
-    fcAxesTest(fb)
+    fb.v.grabPage('https://www.spotify.com')
 
 if __name__=="__main__":
     main()
