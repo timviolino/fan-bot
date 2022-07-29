@@ -33,15 +33,28 @@ class fanBot:
         except Exception as e:
             print("The error raised is: ", e)
     
+    def setUnitWhitelist(self, units):
+        wl = ""
+        for axis in units:
+            for unit in axis:
+                for c in unit:
+                    if c not in wl:
+                        if c == '"': wl += '\\"'
+                        else: wl += c
+        return wl
+
     def sortAxisValues(self, axisTextImgs):
         axes = ([0],[0])
         units = ['', '']
+        unitSet = self.pe.units
+        unitWL = self.setUnitWhitelist(unitSet)
         for (img, x, y) in axisTextImgs:
             axis = not (y > 0.8*self.ip.size[0])      # 0: x-axis, 1: y-axis
             text = self.tr.readNumber(img)
+            print(text, x, y)
             if(len(text) == 0):                         # if no numbers, is unit
                 imgs = (img, self.ip.rotate(img, 270))  # take a rotation of the image
-                text = self.tr.readUnit(imgs, self.pe.units[axis])
+                text = self.tr.readUnit(imgs, unitSet[axis], unitWL)
                 if(text != None): units[axis] = text   # add to either x-axis or y-axis unit string
             else:                               # numbers are axis values
                 val = float(text)               # convert string to float
@@ -91,7 +104,9 @@ class fanBot:
                 x, y, w, h = cv.boundingRect(contour)
                 rect = cv.rectangle(im2, (x, y), (x + w, y + h), (0, 255, 0), 2)
                 cropped = im2[y:y + h, x:x + w] # crop the bounding box area
-                if(w < 0.5*self.size[1] and h < 0.5*self.size[0]): # check that crop is reasonably small
+                if(w < 0.5*self.size[1] or h < 0.5*self.size[0]): # check that crop is reasonably small
+                    cropped = cv.resize(cropped, (0,0), fx=3, fy=3)
+                    self.showImage(cropped)
                     imgs.append((cropped, x, y))
             return imgs
 
@@ -124,14 +139,12 @@ class fanBot:
         def readNumber(self, img, wl = "0123456789.", psm = "8"):
             return self.readImage(img, wl, psm)
             
-        def readUnit(self, imgs, units, psm = "8", align = "horizontal"):
-            wl = 'Papm3/hscfin\\"H2O' # tesseract gets confused if there are spaces in this string
-            readUnits = (self.readImage(imgs[0], wl, psm), self.readImage(imgs[1], wl, psm))
+        def readUnit(self, imgs, units, unitWL, psm = "8", align = "horizontal"):
+            readUnits = (self.readImage(imgs[0], unitWL, psm), self.readImage(imgs[1], unitWL, psm))
             trueUnit = None; maxRatio = 0
             for unit in units:
                 for readUnit in readUnits:
                     ratio = fuzz.partial_ratio(readUnit, unit)
-                    print(readUnit, unit, ratio)
                     if(ratio > maxRatio and ratio > 60):
                         trueUnit = unit
                         maxRatio = ratio
@@ -146,7 +159,7 @@ class fanBot:
             self.L_p = L_p                                  # sound pressure level [dB (A)]
             self.w = w                                      # rotational velocity [rad/s]
             self.initDerivedParams()
-            self.units = [['m3/h', 'm3/s', 'cfm'], ['Pa', 'inH2O', '\"H20']]
+            self.units = [['m3/h', 'm3/s', 'cfm', 'CFM'], ['Pa', 'inH2O', '\"H2O']]
 
         def initDerivedParams(self):
             self.A = self.getA(self.D)                      # area [m^2]
