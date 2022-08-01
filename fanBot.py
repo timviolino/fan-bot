@@ -4,13 +4,16 @@ import math                             # used for calculations
 from pytesseract import pytesseract     # used for reading text from images via OCR
 from PIL import Image                   # used for altering image dpi
 from fuzzywuzzy import fuzz             # used for making fuzzy comparisons of strings
+import numpy as np
+# Used for taking screenshots of webpages 
 from selenium import webdriver
 from selenium.webdriver.firefox.service import Service as FirefoxService
 from webdriver_manager.firefox import GeckoDriverManager
 from selenium.webdriver.firefox.options import Options
+import requests
+import fitz
+import io
 
-
-GRAPH_FILE = "graph300.png"
 PATH_TO_TESSERACT = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 class fanBot:
@@ -54,15 +57,17 @@ class fanBot:
         unitSet = self.pe.units
         unitWL = self.setUnitWhitelist(unitSet)
         for (img, x, y) in axisTextImgs:
-            axis = not (y > 0.8*self.ip.size[0])      # 0: x-axis, 1: y-axis
-            text = self.tr.readNumber(img)
-            print(text, x, y)
-            if(len(text) == 0):                         # if no numbers, is unit
-                imgs = (img, self.ip.rotate(img, 270))  # take a rotation of the image
-                text = self.tr.readUnit(imgs, unitSet[axis], unitWL)
-                if(text != None): units[axis] = text   # add to either x-axis or y-axis unit string
-            else:                               # numbers are axis values
-                val = float(text)               # convert string to float
+            isUnit = False
+            axis = not (y > 0.8*self.ip.size[0])        # 0: x-axis, 1: y-axis
+            num = self.tr.readNumber(img)
+            unit = self.tr.readUnit(img, unitWL)
+            if(len(unit) > 1):
+                inPhrase = False
+                if (len(unit) > 4): inPhrase = True
+                isUnit, trueUnit = self.dp.checkIfUnit(unit, unitSet[axis], inPhrase)
+                if(isUnit): units[axis] = trueUnit  # add to either x-axis or y-axis unit string
+            if(not isUnit and self.dp.isNumber(num)):        # numbers are axis values
+                val = float(num)                # convert string to float
                 if(val != 0.0):                 # filter erroneous values
                     axes[axis].append(val)      # add to either x-axis or y-axis list
         for axis in axes: axis.sort()
@@ -94,8 +99,8 @@ class fanBot:
             cv.destroyAllWindows()
 
         def getContours(self, img):
-            rect_kernel = cv.getStructuringElement(cv.MORPH_RECT, (4, 4))
-            dilation = cv.dilate(img, rect_kernel, iterations = 3)
+            rect_kernel = cv.getStructuringElement(cv.MORPH_RECT, (3, 3))
+            dilation = cv.dilate(img, rect_kernel, iterations = 4)
             contours = cv.findContours(dilation, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_NONE)[0]
             return contours
 
@@ -110,9 +115,10 @@ class fanBot:
                 rect = cv.rectangle(im2, (x, y), (x + w, y + h), (0, 255, 0), 2)
                 cropped = im2[y:y + h, x:x + w] # crop the bounding box area
                 if(w < 0.5*self.size[1] or h < 0.5*self.size[0]): # check that crop is reasonably small
+                    if(h > 2*w): cropped = self.rotate(cropped, 270)
                     cropped = cv.resize(cropped, (0,0), fx=3, fy=3)
-                    self.showImage(cropped)
                     imgs.append((cropped, x, y))
+            self.showImage(im2)
             return imgs
 
         def rotate(self, img, angle):
@@ -130,6 +136,16 @@ class fanBot:
             im = Image.open(self.fileLoc)
             im.save(self.fileLoc, dpi=(dpi, dpi))
 
+        def findMatch(self, img, template, method = cv.TM_CCOEFF_NORMED):
+            h, w = template.shape[:2]
+            res = cv.matchTemplate(img, template, method)
+            threshold = 0.05
+            loc = np.where(res >= threshold)
+            if (len(loc[0]) > 0):
+                pt = (loc[1][0], loc[0][0])
+                cropped = img[pt[1]:pt[1] + h, pt[0]:pt[0] + w]
+                self.showImage(cropped)
+
     class textReader:
         def __init__(self, path):
             self.path = path
@@ -144,16 +160,9 @@ class fanBot:
         def readNumber(self, img, wl = "0123456789.", psm = "8"):
             return self.readImage(img, wl, psm)
             
-        def readUnit(self, imgs, units, unitWL, psm = "8", align = "horizontal"):
-            readUnits = (self.readImage(imgs[0], unitWL, psm), self.readImage(imgs[1], unitWL, psm))
-            trueUnit = None; maxRatio = 0
-            for unit in units:
-                for readUnit in readUnits:
-                    ratio = fuzz.partial_ratio(readUnit, unit)
-                    if(ratio > maxRatio and ratio > 60):
-                        trueUnit = unit
-                        maxRatio = ratio
-            return trueUnit
+        def readUnit(self, img, unitWL, psm = "8", align = "horizontal"):
+            return self.readImage(img, unitWL, psm)
+            
 
     class physicsEngine:
         def __init__(self, Q=1, p_s=1, D=1, P_in=1, L_p=None, w=None):
@@ -204,6 +213,17 @@ class fanBot:
             except:
                 return False
 
+        def checkIfUnit(self, text, units, inPhrase, threshold = 70):
+            trueUnit = None; maxRatio = 0
+            for unit in units:
+                ratio = 0
+                if(inPhrase): ratio = fuzz.partial_ratio(text, unit)
+                else: ratio = fuzz.ratio(text, unit)
+                if(ratio > maxRatio and ratio > threshold):
+                    trueUnit = unit
+                    maxRatio = ratio
+            return (maxRatio > threshold), trueUnit
+
     class speech:
         def __init__(self):
             pass
@@ -227,6 +247,24 @@ class fanBot:
                 screenshot = driver.save_screenshot('test.png')
             driver.quit()
 
+        def writePDFFromURL(self, url):
+            pdf = requests.get(url)
+            fileName = "test.pdf"
+            open(fileName, "wb").write(pdf.content)
+            return fileName
+
+        def parsePDF(self, file):
+            pdf = fitz.open(file)
+            for i in range(len(pdf)):
+                imgs = pdf.get_page_images(i)
+                for j in range(len(imgs)):
+                    xref = imgs[j][0]
+                    baseImg = pdf.extract_image(xref)
+                    byteImg = baseImg["image"]
+                    ext = baseImg["ext"]
+                    image = Image.open(io.BytesIO(byteImg))
+                    image.save(open(f"image{i}_{j}.{ext}", "wb"))
+
 def fcAxesTest(fb):
     fb.acquirefc()
     fb.setAxes()
@@ -235,9 +273,7 @@ def fcAxesTest(fb):
 
 def main():
     fb = fanBot()
-    pages = ['https://datasheet.octopart.com/3312NH-EBM-Papst-datasheet-38188892.pdf',
-            'https://datasheet.octopart.com/OD4010-12HB-Orion-datasheet-110760261.pdf']
-    fb.v.grabPage(5*pages)
+    fcAxesTest(fb)
 
 if __name__=="__main__":
     main()
