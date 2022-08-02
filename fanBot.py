@@ -4,15 +4,11 @@ import math                             # used for calculations
 from pytesseract import pytesseract     # used for reading text from images via OCR
 from PIL import Image                   # used for altering image dpi
 from fuzzywuzzy import fuzz             # used for making fuzzy comparisons of strings
-import numpy as np
-# Used for taking screenshots of webpages 
-from selenium import webdriver
-from selenium.webdriver.firefox.service import Service as FirefoxService
-from webdriver_manager.firefox import GeckoDriverManager
-from selenium.webdriver.firefox.options import Options
-import requests
-import fitz
-import io
+import numpy as np                      # used for detecting image matches
+import requests                         # used for accessing web links
+import fitz                             # used for extracting data from pdfs
+import io                               # used for converting bytes
+from pdf2image import convert_from_path # used for converting pdfs to images
 
 PATH_TO_TESSERACT = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
@@ -238,20 +234,15 @@ class fanBot:
         def __init__(self):
             pass
 
-        def grabPage(self, pages):
-            options = Options()
-            options.binary_location = r'C:\Program Files\Mozilla Firefox\firefox.exe'
-            driver = webdriver.Firefox(service=FirefoxService(GeckoDriverManager().install()), options=options)
-            for page in pages:
-                driver.get(page)
-                screenshot = driver.save_screenshot('test.png')
-            driver.quit()
+        def pdf2img(self, path):
+            poppler_path = r"C:\Users\tviolino\Packages\poppler-22.04.0\Library\bin"
+            # note that it may be useful to do this in a tempfile
+            imgs = convert_from_path(path, poppler_path=poppler_path) # list of PIL images
+            return imgs
 
-        def writePDFFromURL(self, url):
+        def writePDFFromURL(self, url, path):
             pdf = requests.get(url)
-            fileName = "test.pdf"
-            open(fileName, "wb").write(pdf.content)
-            return fileName
+            open(path, "wb").write(pdf.content)
 
         def parsePDF(self, file):
             pdf = fitz.open(file)
@@ -273,7 +264,13 @@ def fcAxesTest(fb):
 
 def main():
     fb = fanBot()
-    fcAxesTest(fb)
+    url = "https://datasheet.octopart.com/3312NH-EBM-Papst-datasheet-38188892.pdf"
+    path = 'test.pdf'
+    fb.v.writePDFFromURL(url, path)
+    imgs = fb.v.pdf2img(path)
+    for img in imgs:
+        img.show()
+    
 
 if __name__=="__main__":
     main()
